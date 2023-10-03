@@ -1,13 +1,13 @@
 #include "server.hpp"
 #include <sstream>
 #include <iostream>
+#include <map>
 
 namespace http
 {
   TcpServer::TcpServer(std::string ip_addr, int port) : m_ipAddr(ip_addr),
                                                         m_port(port),
                                                         m_incomingMessage(),
-                                                        m_serverMessage(composeResponse("hello from server!")),
                                                         m_sockAddr(),
                                                         m_sockAddrLen(sizeof(m_sockAddr))
   {
@@ -75,14 +75,13 @@ namespace http
       return -1;
     }
 
-    long bytesSent = write(m_clientSocket, m_serverMessage.c_str(), m_serverMessage.size());
-    if (bytesSent == m_serverMessage.size())
+    std::string req = buff;
+    std::string serverResp = routeRequest(req);
+
+    long bytesSent = write(m_clientSocket, serverResp.c_str(), serverResp.size());
+    if (bytesSent < 0)
     {
-      std::cout << "response sent to client" << std::endl;
-    }
-    else
-    {
-      std::cout << "read error" << std::endl;
+      std::cout << "write error" << std::endl;
       return -1;
     }
     close(m_clientSocket);
@@ -100,9 +99,73 @@ namespace http
     std::ostringstream ret;
     ret << "HTTP/1.1 200 OK" << std::endl;
     ret << std::endl;
-    ret << message << std::endl;
+    ret << message;
 
     return ret.str();
+  }
+
+  std::string TcpServer::routeRequest(std::string req)
+  {
+    // get first line of request
+    std::string line = req.substr(0, req.find("\n"));
+
+    // split by " " to separate method and path
+    std::string delimiter = " ";
+    std::string method = line.substr(0, line.find(delimiter));
+    line.erase(0, line.find(delimiter) + delimiter.length());
+    std::string path = line.substr(0, line.find(delimiter));
+
+    if (path == "/")
+    {
+      return homeHandler(method, req);
+    }
+    else
+    {
+      std::ostringstream ret;
+      ret << "HTTP/1.1 404 Not Found" << std::endl;
+      ret << std::endl;
+      ret << "404 Not Found";
+      return ret.str();
+    }
+  }
+
+  enum Method
+  {
+    UNDEFINED,
+    GET,
+    POST,
+  };
+
+  static std::map<std::string, Method> s_HttpMethodMap;
+
+  Method convert(std::string methodStr)
+  {
+    if (methodStr == "GET")
+      return GET;
+    if (methodStr == "POST")
+      return POST;
+
+    return UNDEFINED;
+  }
+
+  std::string TcpServer::homeHandler(std::string method, std::string req)
+  {
+    switch (convert(method))
+    {
+    case GET:
+      return composeResponse("hello from get!");
+      break;
+    case POST:
+      return composeResponse("hello from post!");
+      break;
+    default:
+      std::ostringstream ret;
+      ret << "HTTP/1.1 405 Method Not Allowed" << std::endl;
+      ret << std::endl;
+      ret << "405 Method Not Allowed";
+      return ret.str();
+      break;
+    }
   }
 
 } // namespace http
